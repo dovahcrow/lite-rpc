@@ -1,7 +1,7 @@
 pub mod rpc_tester;
 
 use crate::rpc_tester::RpcTester;
-use anyhow::bail;
+use anyhow::{anyhow, bail, Error};
 use dashmap::DashMap;
 use itertools::Itertools;
 use lite_rpc::bridge::LiteBridge;
@@ -30,7 +30,6 @@ use solana_lite_rpc_cluster_endpoints::grpc_subscription::create_grpc_subscripti
 use solana_lite_rpc_cluster_endpoints::json_rpc_leaders_getter::JsonRpcLeaderGetter;
 use solana_lite_rpc_cluster_endpoints::json_rpc_subscription::create_json_rpc_polling_subscription;
 use solana_lite_rpc_cluster_endpoints::rpc_polling::poll_blocks::NUM_PARALLEL_TASKS_DEFAULT;
-use solana_lite_rpc_core::keypair_loader::load_identity_keypair;
 use solana_lite_rpc_core::stores::{
     block_information_store::{BlockInformation, BlockInformationStore},
     cluster_info_store::ClusterInfo,
@@ -119,11 +118,16 @@ pub async fn start_lite_rpc(args: Config, rpc_client: Arc<RpcClient>) -> anyhow:
         ..
     } = args;
 
+    pub fn load_keypair(src: &str) -> Result<Keypair, Error> {
+        let decoded = bs58::decode(src).into_vec()?;
+        Ok(Keypair::from_bytes(&decoded).map_err(|_| anyhow!("Cannot read pubkey"))?)
+    }
+
     let validator_identity = Arc::new(
-        load_identity_keypair(identity_keypair)
-            .await?
-            .unwrap_or_else(Keypair::new),
+        load_keypair(&identity_keypair.unwrap_or_default()).unwrap_or_else(|_| Keypair::new()),
     );
+
+    info!("Use key {} for connection", validator_identity.pubkey());
 
     let retry_after = Duration::from_secs(transaction_retry_after_secs);
 
@@ -450,9 +454,13 @@ pub async fn main() -> anyhow::Result<()> {
 
 fn configure_tpu_connection_path(quic_proxy_addr: Option<String>) -> TpuConnectionPath {
     match quic_proxy_addr {
-        None => TpuConnectionPath::QuicDirectPath,
+        None => {
+            info!("Use direct TPU connection");
+            TpuConnectionPath::QuicDirectPath
+        }
         Some(prox_address) => {
             let proxy_socket_addr = parse_host_port(prox_address.as_str()).unwrap();
+            info!("Use QUIC proxy at {}", proxy_socket_addr);
             TpuConnectionPath::QuicForwardProxyPath {
                 // e.g. "127.0.0.1:11111" or "localhost:11111"
                 forward_proxy_address: proxy_socket_addr,

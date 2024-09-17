@@ -126,6 +126,8 @@ impl Config {
         let mut config: Config =
             serde_json::from_str(&config).context("Error parsing config file")?;
 
+        config.identity_keypair = env::var("IDENTITY").ok();
+
         config.rpc_addr = env::var("RPC_ADDR").unwrap_or(config.rpc_addr);
 
         config.ws_addr = env::var("WS_ADDR").unwrap_or(config.ws_addr);
