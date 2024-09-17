@@ -1,0 +1,48 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+
+      - run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libssl-dev libudev-dev
+
+      - uses: actions/checkout@v2
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+          # avoid the default "-D warnings" which thrashes cache
+          rustflags: ""
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.3
+
+      # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
+      # https://blog.arriven.wtf/posts/rust-ci-cache/
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # will be covered by sscache
+          cache-targets: false
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Early Build
+        run: |
+          cargo build --locked
+
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: target/release/lite-rpc
+          omitBody: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
